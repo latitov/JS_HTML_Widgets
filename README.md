@@ -3,7 +3,7 @@ Easily create widget objects of arbitrary complexity
 
 By Leonid Titov, 2019-09-23
 
-Please download, and open the Widget_v2.md.html in a browser, and read.
+Please download, and open the Widget_v3.md.html in a browser, and read.
 
 What you'll get:
 
@@ -36,6 +36,9 @@ Here's an example of what it look like.
 			</div>
 		`,
 		new: typical_widget_new,
+		WidgetSpecializer: {
+			remove: typical_widget_remove,
+		}
 	});
 })();
 ```
