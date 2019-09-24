@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html><head><link rel="stylesheet" href="github-markdown.css"></head><body>
-<textarea id="mydoc-src" style="display: none;">
+<div id="mydoc-src" style="display: none;">LlNnlljn77fggggkk77csJJK8bbJBKJBkjjjjbbbJJLJLLJo<!--
 
 # How to best create UI widgets in JavaScript/HTML
+
 ## Widget architecture for JavaScript/HTML
 
 By Leonid Titov, 2019-09-24
@@ -885,7 +886,9 @@ The End.
 
 _Written by Leonid Titov, 2019_
 
-</textarea>
+
+-->LlNnlljn77fggggkk77csJJK8bbJBKJBkjjjjbbbJJLJLLJo
+</div>
 <div class="markdown-body" id="mydoc-res" style="max-width: 900px;">
 <script src="showdown.js"></script>
 <script>
@@ -895,7 +898,8 @@ _Written by Leonid Titov, 2019_
 	converter.setOption('tasklists', true);
 	var src = document.getElementById("mydoc-src");
 	var res = document.getElementById("mydoc-res");
-	res.innerHTML = converter.makeHtml(src.innerHTML);
+	res.innerHTML = converter.makeHtml(src.innerHTML)
+			.replace(/<p>.{0,10}LlNnlljn77fggggkk77csJJK8bbJBKJBkjjjjbbbJJLJLLJo.{0,10}<\/p>/g, "");
 	src.innerHTML = '';
 </script>
 </body> </html>
