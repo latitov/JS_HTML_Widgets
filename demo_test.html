@@ -1,0 +1,154 @@
+	<!DOCTYPE html>
+	<html>
+	<body>
+	
+	<div id="pbw1"></div>
+	
+	<script>
+
+// inside a js file of a widget class
+(function () {
+	var Module_Path = ["WidgetsLib", "a1", "ProgressBar"];
+	var curr = this;
+	Module_Path.forEach(function(i){if (curr[i] == null) {addChildToTree(curr, i, {})} curr = curr[i]});
+
+	specialize_with(curr, {
+		CSS_Literal: `
+			.{{WIDGET_CLASS_ID}}_base {
+				background-color: hsl(220, 30%, 80%);
+				border-radius:16px;
+			}
+			.{{WIDGET_CLASS_ID}}_progress {
+				background-color: hsl(220, 70%, 60%);
+				border-radius:16px;
+				text-align:center;
+				font-weight: bold;
+				color: hsl(220, 0%, 100%);
+				width: 0%;
+				transition: width 1s linear;
+			}
+		`,
+		HTML_Literal: `
+			<div class="{{WIDGET_CLASS_ID}}_base" onclick="{{WIDGET_INSTANCE}}.onclick(event)">
+				<div class="{{WIDGET_CLASS_ID}}_progress">0%</div>
+			</div>
+		`,
+		new: typical_widget_new,
+		WidgetSpecializer: {
+			remove: typical_widget_remove,
+			update: function(data) {
+				var e1 = this.DOME.querySelector("." + this.tree_parent.widget_class_id + "_progress");
+				console.log(this.tree_parent.widget_class_id + "_progress");
+				e1.style.width = data + "%";
+				e1.innerHTML = data + "%";
+				return this;
+			},
+		},
+	});
+})();
+
+
+
+		var pbw1 = WidgetsLib.a1.ProgressBar.new("pbw1", {
+			onclick: function(ev) {
+				console.log("====== YOU CLICKED PROGRESS BAR");
+				progress += 1;
+				if (progress >= 110) {
+					console.log("====== REMOVING A WIDGET");
+					this.remove();
+				}
+			}
+		});		
+
+		var progress = 0;
+
+		var proc = setInterval(function() {
+			if (progress >= 100) {
+				clearInterval(proc);
+				return;
+			}
+			progress += 1;
+			pbw1.update(progress);
+		}, 400);
+
+
+
+
+
+		/////// UTILITY FUNCTIONS ////////
+		function getMyTreeLocation(o) {
+			var widget_class_id = "", widget_path = "";
+			
+			while (true) {
+				widget_class_id = o.tree_name + widget_class_id;
+				widget_path = o.tree_name + widget_path;
+				o = o.tree_parent;
+				if (o.tree_parent == null) {
+					break;
+				}
+				widget_class_id = "_" + widget_class_id;
+				widget_path = "." + widget_path;
+			}
+			return [widget_class_id, widget_path];
+		}
+	
+		function addChildToTree(o, childName, childO) {
+			o[childName] = childO;
+			childO.tree_parent = o;
+			childO.tree_name = childName;
+		}
+	
+		function specialize_with(o, S) { for (var prop in S) { o[prop] = S[prop]; } }
+
+
+	function typical_widget_new (dom_id, spec_o) {
+		if (this.instances == null) { this.instances = []; }
+		var instance_id = this.instances.length;
+		var el;
+		
+		if (this.ever_instantiated == null) {	// first instance ever
+			this.ever_instantiated = 1;
+
+			[this.widget_class_id, this.widget_path] = getMyTreeLocation(this);
+
+			el = document.createElement('style');
+			el.type = 'text/css';
+			el.innerHTML = this.CSS_Literal
+				.replace(/\{\{WIDGET_CLASS_ID\}\}/g, this.widget_class_id);
+			document.getElementsByTagName('head')[0].appendChild(el);
+		}
+		
+		var Widget = {
+			// newly created widget
+			tree_parent: this,
+			instance_id: instance_id,
+		};
+		this.instances.push(Widget);
+		
+		specialize_with(Widget, spec_o);
+		specialize_with(Widget, this.WidgetSpecializer);
+		
+		var base_el = document.getElementById(dom_id);
+		el = document.createElement('div');
+		specialize_with(el.style, base_el.style);
+		base_el.replaceWith(el);
+		el.setAttribute("id", dom_id);
+		el.innerHTML = this.HTML_Literal
+			.replace(/\{\{WIDGET_CLASS_ID\}\}/g, this.widget_class_id)
+			.replace(/\{\{WIDGET_INSTANCE\}\}/g, `${this.widget_path}.instances[${instance_id}]`);
+
+		Widget.DOME = el;
+		return Widget;
+	}
+
+	function typical_widget_remove () {
+		this.DOME.remove();
+		this.tree_parent.instances.splice(this.instance_id, 1);
+	}
+
+
+
+	</script>
+
+	</body>
+	</html>
