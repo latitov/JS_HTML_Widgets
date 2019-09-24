@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html><head><link rel="stylesheet" href="github-markdown.css"></head><body>
+<textarea id="mydoc-src" style="display: none;">
+
+# How to best create UI widgets in JavaScript/HTML
+## Widget architecture for JavaScript/HTML
+
+By Leonid Titov, 2019-09-24
+
+Contents:
+
+- [Part 1. Widget Inclusion and Dir Structure](#part1widgetinclusionanddirstructure)
+- [Part 2. Widget Program Architecture](#part2widgetprogramarchitecture)
+- [Part 3. Callbacks](#part3callbacks)
+- [Part 4. Typical new()](#part4typicalnew)
+- [Part 5. Example](#part5example)
+- [Part 6. Better idea for new()](#part6betterideafornew)
+- [Part 7. remove() a widget](#part7removeawidget)
+- [Part 8. update() a widget](#part8updateawidget)
+- [Part 9. Example](#part9example)
+
+## Part 1. Widget Inclusion and Dir Structure
+
+A widget as a reusable component is a file with JS code, which is included via this tag:
+
+	<script src="WidgetsLib/a1/Button/js"></script>
+
+A one JS file may contain a whole pack of different widgets:
+
+	<script src="WidgetsLib/all.js"></script>
+
+Note, that a particular widget file, though it's certainly built with build app,
+isn't located in _R/. That's for convenience. Instead, the actual structure of a widget dir is this:
+
+	WidgetsLib/a1/Button/
+				src/
+					actual source code files are here...
+				build	Build app
+				js	the result of build process
+
+
+## Part 2. Widget Program Architecture
+
+The widget architecture is as follows:
+
+- 1. CSS literal. All style classes of a widget are put in here.
+
+	Must be injected into the DOM once for all instances of a widget.
+
+- 2. HTML literal. The HTML which will be inserted into the DOM.
+
+	Gets injected into the DOM once per each widget. It _is_ a widget.
+
+- 3. All necessary callbacks, and proper attachment of them to HTML elements.
+
+- 4. A constructor, that makes it all into a real object.
+
+- 5. Each widget must be ID-ed, uniquely.
+
+- 6. Each widget must be placed in proper place in DOM hierarchy, and provided width and height
+parameters.
+
+As an example, here's how Google creates a map widget:
+
+	<!DOCTYPE html>
+	<html>
+	<body>
+
+	<h1>My First Google Map</h1>
+
+	<div id="googleMap" style="width:90%;height:400px;"></div>  --(5)
+	
+	<script>
+	function myMap() { --(2)
+		var mapProp= { --(3)
+			center:new google.maps.LatLng(51.508742,-0.120850),
+			zoom:5,
+		};
+	var map = new google.maps.Map(document.getElementById("googleMap"),mapProp);   --(4)
+	}
+	</script>
+	
+	<script src="https://maps.googleapis.com/maps/api/js?key=API_KEY&callback=myMap"></script> --(1)
+	
+	</body>
+	</html>
+
+The (1) is a weird form of calling a constructor, which then calls (2) callback, which defines (3)
+some data structure with parameters for a map to be created. After that, _a second constructor_
+called (4), which actually creates a widget in (5) div block. Looks like (1) is a constructor-of-the-constructor,
+don't know why they complicated it so much.
+
+But what can be taken useful from this, is the idea that instead of traditional way to create widgets by
+calling a constructor and passing it a location _where_ to create it, and also geometry information,
+instead we create a widget div right away in HTML, thus providing it with width and height and possibly
+other parameters, and properly placing it in the DOM hierarchy, and then just reference it by ID in
+the constructor call. It would elegantly solve the 5 and 6 from above list.
+
+An example:
+
+	<!DOCTYPE html>
+	<html>
+	<body>
+
+	<h1>My First Widget Test</h1>
+
+	<div id="wdg1" style="width: 150px; height: 50px;"></div>
+	
+	<script>
+		var b1 = WidgetsLib.a1.Button.new("wdg1", {
+			prop1:	1,
+			meth1:	function() { ... },
+		});
+	</script>
+	
+	<script src="WidgetsLib/a1/Button/js"></script>
+	
+	</body>
+	</html>
+
+__Note:__ constructor will create a brand new object, and replace wdg1 with it,
+and copy all style information from wdg1 to a newly created div. Also id get's copied,
+nothing else (callbacks don't).
+
+Once widget lib is included, a structure of the following form is created/updated:
+
+	var WidgetsLib = {
+		a1: {
+			Button: {
+				new: function(...) { ... } // a constructor
+				... other global params for all such widgets
+			}
+		}
+	}
+	
+Thus you can access it with:
+
+	var b1 = WidgetsLib.a1.Button.new(...);
+
+__Important:__ the Button is not an object, and Button.new() doesn't instantiate it.
+Instead, the Button is nothing but a namespace, a convenience to organize widgets hierarchically,
+keep sane names for everything, and also be able to keep global information on each class
+of widgets. Think of it as of a package in Perl.
+
+And so Button.new() is just an __ordinary function__, not a method (though it can access
+it's location via `this` syntax). And it creates and returns you an object. It can create
+it anyway, and there's no requirement for it to be called `new()`.
+
+## Part 3. Callbacks
+
+Another problem is how to attach callbacks. Some callbacks we could attach directly to the `<div>`,
+however that's not the case for complex widgets, and is somehow inconvenient. To standardize this,
+let's always define callbacks in the widget object instance. __Here:__ the constructor would register
+some properties of our instance as callbacks in DOM; then you can define those instances to actual
+functions. Like so:
+
+	var b1 = WidgetsLib.a1.Button.new("wdg1", {
+		onclick: function(ev) {
+			...
+		}
+	});
+
+and
+
+	<div onclick="WidgetsLib.a1.Button.onclick(event)"></div>
+
+ughh.. Previously I though it'd be a problem, because we can't pass b1 there,
+and so we would need an array of all instances of buttons, and make something like
+`<div onclick="WidgetsLib.a1.Button.instances[14].onclick(event)"></div>`. Fortunatelly, __we can__
+pass b1 there directly, so there is no problem whatsoever.... Or is there? What if
+you re-assign b1, or it goes out of scope? Hm, we still do need an array then.
+
+Each newly created instance would be put into an `instances[]` array, and all callbacks
+from DOM would point there. Thus it doesn't matter if you lose b1. This way:
+
+	<div onclick="WidgetsLib.a1.Button.instances[123].onclick(event)"></div>
+	
+
+## Part 4. Typical `new()`
+
+Typical form of a widget in a library hierarchy, with the `new()` function, would be this:
+
+	...: {
+		CSS_Literal: `
+			.{{WIDGET_CLASS_ID}}_Something {
+				color: hsl(0, 0%, 20%);
+			}
+		`,
+		HTML_Literal: `
+				<div onclick="{{WIDGET_INSTANCE}}.onclick(event)"
+				class="{{WIDGET_CLASS_ID}}_Something"
+			>
+			</div>
+		`,
+		new: function(dom_id, spec_o) {
+			var instance_id = this.instances.length;
+			var widget_class_id, widget_path, el;
+
+			[widget_class_id, widget_path] = getMyTreeLocation(this);
+			
+			if (this.ever_instantiated == null) {	// first instance ever
+				this.ever_instantiated = 1;
+				el = document.createElement('style');
+				el.type = 'text/css';
+				el.innerHTML = this.CSS_Literal
+					.replace(/\{\{WIDGET_CLASS_ID\}\}/g, widget_class_id);
+				document.getElementsByTagName('head')[0].appendChild(el);
+			}
+			
+			var Widget = {
+				// newly created widget
+			};
+			this.instances.push(Widget);
+			
+			specialize_with(Widget, spec_o);
+			
+			var base_el = document.getElementById(dom_id);
+			el = document.createElement('div');
+			specialize_with(el.style, base_el.style);
+			base_el.replaceWith(el);
+			el.setAttribute("id", dom_id);
+			el.innerHTML = this.HTML_Literal
+				.replace(/\{\{WIDGET_CLASS_ID\}\}/g, widget_class_id)
+				.replace(/\{\{WIDGET_INSTANCE\}\}/g, `${widget_path}.instances[${instance_id}]`);
+			
+			Widget.DOME = el;
+			return Widget;
+		},
+	}
+
+`specialize_with()` can be found here: https://github.com/latitov/OOP_MI_Ct_oPlus_in_JS .
+
+Objects to the lib tree are added with this function:
+
+	function addChildToTree(o, childName, childO) {
+		o[childName] = childO;
+		childO.tree_parent = o;
+		childO.tree_name = childName;
+	}
+
+To ensure the possibility to find `{{WIDGET_CLASS_ID}}` and `{{WIDGET_INSTANCE}}`. That is done with
+this complementary function:
+
+	function getMyTreeLocation(o) {
+		var widget_class_id = "", widget_path = "";
+		
+		while (true) {
+			widget_class_id = o.tree_name + widget_class_id;
+			widget_path = o.tree_name + widget_path;
+			o = o.tree_parent;
+			if (o.tree_parent == null) {
+				break;
+			}
+			widget_class_id = "_" + widget_class_id;
+			widget_path = "." + widget_path;
+		}
+		return [widget_class_id, widget_path];
+	}
+
+Here's how you use it:
+
+	var T = {
+		tree_name: "TheTreeRoot"
+	};
+	
+	addChildToTree(T, "Sub1", {});
+	addChildToTree(T.Sub1, "Sub1", {});
+	addChildToTree(T.Sub1.Sub1, "xxx", {});
+
+The includable `js` file, registers itself in a tree like this:
+
+	// inside a js file of a widget class
+	(function () {
+		var Module_Path = [
+			"WidgetsLib",
+			"a1",
+			"Button",
+		];
+	
+		var curr = this;
+		Module_Path.forEach(function(i){
+			if (curr[i] == null) {
+				addChildToTree(curr, i, {});
+			}
+			curr = curr[i];
+		});
+	
+		specialize_with(curr, {
+			new: function() { ...}
+		});
+	})();
+
+## Part 5. Example
+
+Here's a complete test, a single file logically split in sections.
+
+#### User HTML:
+
+	<!DOCTYPE html>
+	<html>
+	<body>
+	
+	<h1 id=t1>-</h1>
+	<h3 id=t3>-</h3>
+	
+	<div id="w1" style="background-color: hsl(200, 50%, 50%);">This will be a widget.</div>
+	
+	<pre id="dbg"></pre>
+
+	<script>
+
+#### A widget code
+
+		// inside a js file of a widget class
+		(function () {
+			var Module_Path = [
+				"WidgetsLib",
+				"a1",
+				"Button",
+			];
+		
+			var curr = this;
+			Module_Path.forEach(function(i){
+				if (curr[i] == null) {
+					addChildToTree(curr, i, {});
+				}
+				curr = curr[i];
+			});
+		
+			specialize_with(curr, {
+				CSS_Literal: `
+					.{{WIDGET_CLASS_ID}}_Something {
+						color: hsl(0, 0%, 20%);
+					}
+				`,
+				HTML_Literal: `
+					<div onclick="{{WIDGET_INSTANCE}}.onclick(event)"
+						class="{{WIDGET_CLASS_ID}}_Something"
+					>
+					SOME SUPER COOL WIDGET
+					</div>
+				`,
+				new: function(dom_id, spec_o) {
+					if (this.instances == null) { this.instances = []; }
+					var instance_id = this.instances.length;
+					var widget_class_id, widget_path, el;
+		
+					[widget_class_id, widget_path] = getMyTreeLocation(this);
+					
+					if (this.ever_instantiated == null) {	// first instance ever
+						this.ever_instantiated = 1;
+						el = document.createElement('style');
+						el.type = 'text/css';
+						el.innerHTML = this.CSS_Literal
+							.replace(/\{\{WIDGET_CLASS_ID\}\}/g, widget_class_id);
+						document.getElementsByTagName('head')[0].appendChild(el);
+					}
+					
+					var Widget = {
+						// newly created widget
+					};
+					this.instances.push(Widget);
+					
+					specialize_with(Widget, spec_o);
+					
+					var base_el = document.getElementById(dom_id);
+					el = document.createElement('div');
+					specialize_with(el.style, base_el.style);
+					base_el.replaceWith(el);
+					el.setAttribute("id", dom_id);
+					el.innerHTML = this.HTML_Literal
+						.replace(/\{\{WIDGET_CLASS_ID\}\}/g, widget_class_id)
+						.replace(/\{\{WIDGET_INSTANCE\}\}/g, `${widget_path}.instances[${instance_id}]`);
+
+					Widget.DOME = el;
+					return Widget;
+				},
+				new_test: function() {
+					document.getElementById("t3").innerHTML = "It's new()";
+				}
+			});
+		})();
+
+#### User code
+
+		var widget_class_id, widget_path;
+	
+		[widget_class_id, widget_path] = getMyTreeLocation(WidgetsLib.a1.Button);
+	
+		WidgetsLib.a1.Button.new_test();
+		
+		document.getElementById("t1").innerHTML = widget_class_id + "<br>" + widget_path;
+		
+		var b1 = WidgetsLib.a1.Button.new("w1", {
+			name: "NNNNNNN",
+			onclick: function(ev) {
+				ev.target.style.color = "#ffff00";
+				console.log("====== HERE");
+			}
+		});		
+
+		document.getElementById("dbg").innerHTML = WidgetsLib.a1.Button.instances[0].name;
+		
+		for (var prop in WidgetsLib.a1.Button.instances[0]) {
+			console.log("++" + prop + " = " + WidgetsLib.a1.Button.instances[0][prop]);
+		}
+
+#### Utility functions
+		
+		/////// UTILITY FUNCTIONS ////////
+		function getMyTreeLocation(o) {
+			var widget_class_id = "", widget_path = "";
+			
+			while (true) {
+				widget_class_id = o.tree_name + widget_class_id;
+				widget_path = o.tree_name + widget_path;
+				o = o.tree_parent;
+				if (o.tree_parent == null) {
+					break;
+				}
+				widget_class_id = "_" + widget_class_id;
+				widget_path = "." + widget_path;
+			}
+			return [widget_class_id, widget_path];
+		}
+	
+		function addChildToTree(o, childName, childO) {
+			o[childName] = childO;
+			childO.tree_parent = o;
+			childO.tree_name = childName;
+		}
+	
+		function specialize_with(o, S) { for (var prop in S) { o[prop] = S[prop]; } }
+
+#### and
+
+	</script>
+
+	</body>
+	</html>
+
+## Part 6. Better idea for `new()`
+
+As you can notice, a `new()` is going to be pretty much the same for all widgets.
+Therefore, we can put it somewhere as a utility function, and just call it as necessary
+with appropriate parameters.
+
+#### The `new()` would be:
+
+	function typical_widget_new (dom_id, spec_o) {
+		if (this.instances == null) { this.instances = []; }
+		var instance_id = this.instances.length;
+		var widget_class_id, widget_path, el;
+
+		[widget_class_id, widget_path] = getMyTreeLocation(this);
+		
+		if (this.ever_instantiated == null) {	// first instance ever
+			this.ever_instantiated = 1;
+			el = document.createElement('style');
+			el.type = 'text/css';
+			el.innerHTML = this.CSS_Literal
+				.replace(/\{\{WIDGET_CLASS_ID\}\}/g, widget_class_id);
+			document.getElementsByTagName('head')[0].appendChild(el);
+		}
+		
+		var Widget = {
+			// newly created widget
+		};
+		this.instances.push(Widget);
+		
+		specialize_with(Widget, spec_o);
+		
+		var base_el = document.getElementById(dom_id);
+		el = document.createElement('div');
+		specialize_with(el.style, base_el.style);
+		base_el.replaceWith(el);
+		el.setAttribute("id", dom_id);
+		el.innerHTML = this.HTML_Literal
+			.replace(/\{\{WIDGET_CLASS_ID\}\}/g, widget_class_id)
+			.replace(/\{\{WIDGET_INSTANCE\}\}/g, `${widget_path}.instances[${instance_id}]`);
+
+		Widget.DOME = el;
+		return Widget;
+	}
+
+#### And a widget code, let's also reformat it a little bit:
+
+	// inside a js file of a widget class
+	(function () {
+		var Module_Path = ["WidgetsLib", "a1", "Button"];
+		var curr = this;
+		Module_Path.forEach(function(i){if (curr[i] == null) {addChildToTree(curr, i, {})} curr = curr[i]});
+	
+		specialize_with(curr, {
+			CSS_Literal: `
+				.{{WIDGET_CLASS_ID}}_Something {
+					color: hsl(0, 0%, 20%);
+				}
+			`,
+			HTML_Literal: `
+				<div onclick="{{WIDGET_INSTANCE}}.onclick(event)"
+					class="{{WIDGET_CLASS_ID}}_Something"
+				>
+				SOME SUPER COOL WIDGET
+				</div>
+			`,
+			new: typical_widget_new,
+		});
+	})();
+
+Wow, now it look really good for re-use.
+
+And again, here's how you use it:
+
+		var b1 = WidgetsLib.a1.Button.new("w1", {
+			name: "NNNNNNN",
+			onclick: function(ev) {
+				ev.target.style.color = "#ffff00";
+				console.log("====== HERE");
+			}
+		});
+		
+		...
+		
+		b1.update(data);
+		
+		...
+		
+		b1.remove();
+
+
+## Part 7. remove() a widget
+
+To be able to remove a widget (e.g. an item from a list), we need both to remove it from
+DOM, and from `instances[]` array. For the latter, we need:
+
+- A Widget object to have `tree_parent`;
+- A Widget object to have own `instance_id`;
+
+We also will add `widget_class_id` and `widget_path`, that'll be useful for `update()`
+et al. Because it is the same for all instances, let's add it to the widget home object.
+
+__Also__, the `remove()` must be added not to a home object, but to the instance.
+How do we do that? For that, we create a `WidgetSpecializer` substructure in a home
+object, and there a widget designer can add anything instance-specific.
+
+Here's an updated `new()`:
+
+	function typical_widget_new (dom_id, spec_o) {
+		if (this.instances == null) { this.instances = []; }
+		var instance_id = this.instances.length;
+		var el;
+		
+		if (this.ever_instantiated == null) {	// first instance ever
+			this.ever_instantiated = 1;
+
+			[this.widget_class_id, this.widget_path] = getMyTreeLocation(this);
+
+			el = document.createElement('style');
+			el.type = 'text/css';
+			el.innerHTML = this.CSS_Literal
+				.replace(/\{\{WIDGET_CLASS_ID\}\}/g, this.widget_class_id);
+			document.getElementsByTagName('head')[0].appendChild(el);
+		}
+		
+		var Widget = {
+			// newly created widget
+			tree_parent: this,
+			instance_id: instance_id,
+		};
+		this.instances.push(Widget);
+		
+		specialize_with(Widget, this.WidgetSpecializer);
+		specialize_with(Widget, spec_o);
+		
+		var base_el = document.getElementById(dom_id);
+		el = document.createElement('div');
+		specialize_with(el.style, base_el.style);
+		base_el.replaceWith(el);
+		el.setAttribute("id", dom_id);
+		el.innerHTML = this.HTML_Literal
+			.replace(/\{\{WIDGET_CLASS_ID\}\}/g, this.widget_class_id)
+			.replace(/\{\{WIDGET_INSTANCE\}\}/g, `${this.widget_path}.instances[${instance_id}]`);
+
+		Widget.DOME = el;
+		return Widget;
+	}
+
+And here's the `remove()`:
+
+	function typical_widget_remove () {
+		this.DOME.remove();
+		this.tree_parent.instances.splice(this.instance_id, 1);
+	}
+
+"DOME" stands for DOM Element.
+
+#### Finally, a widget code will be:
+
+	// inside a js file of a widget class
+	(function () {
+		var Module_Path = ["WidgetsLib", "a1", "Button"];
+		var curr = this;
+		Module_Path.forEach(function(i){if (curr[i] == null) {addChildToTree(curr, i, {})} curr = curr[i]});
+	
+		specialize_with(curr, {
+			CSS_Literal: `
+				.{{WIDGET_CLASS_ID}}_Something {
+					color: hsl(0, 0%, 20%);
+				}
+			`,
+			HTML_Literal: `
+				<div onclick="{{WIDGET_INSTANCE}}.onclick(event)"
+					class="{{WIDGET_CLASS_ID}}_Something"
+				>
+				SOME SUPER COOL WIDGET
+				</div>
+			`,
+			new: typical_widget_new,
+			WidgetSpecializer: {
+				remove: typical_widget_remove,
+			},
+		});
+	})();
+
+## Part 8. update() a widget
+
+It's one of the most interesting parts, and one of the reasons we need widget objects in the first place.
+Really, there's a detailed example how to create widgets in HTML5 at https://developer.mozilla.org/en-US/docs/Learn/HTML/Forms/How_to_build_custom_form_widgets .
+It's really long and complex, and doesn't makes a trully reusable object. _This_ framework does solve it.
+Updating data is another reason why I developed all this.
+
+Let's consider a trivial example: a progress bar. Not just a progress bar, but a widget that contains
+a progress bar, _and_ a number in %. And we need to feed it a data, and it'll show it us. The problem here is
+that we need to update data in _two places_. Each place should be ID-ed, and properly updated, in widget-specific
+manner. And it's just a progress bar, quite simple widget!
+
+Now, `update()` solves this this way. We call this method, and pass it the data, and it does everything
+else automatically. Since it's part of a widget, it just knows how and what should be updated.
+
+Let's take an example, and see how individual parts of a widget HTML get identified.
+
+	<!DOCTYPE html>
+	<html>
+	<title>W3.CSS</title>
+	<link rel="stylesheet" href="w3.css">
+	<body>
+	
+	<div class="w3-container">
+		<h2>Rounded Progress Bars</h2>
+		<p>Use any of the <strong>w3-round</strong> classes to add rounded corners to progress bars:</p>
+	
+		<div class="w3-round-xlarge" style="background-color: hsl(220, 30%, 80%);">
+			<div class="w3-round-xlarge w3-center"
+				style="width:63%; background-color: hsl(220, 70%, 60%);
+					font-weight: bold; color: hsl(220, 0%, 100%);"
+			>63%</div>
+		</div>
+	</div>
+	
+	</body>
+	</html>
+
+The widget HTML literal would be a `<div>` in the middle, and we need to update a number
+(63%) in two places, in a style, and a div contents. Here's how it works. First, let's
+write a widget HTML literal, and mark each part of interest __with a class__ (not an id -
+ids must be unique across a document, so they don't fit), and prepend each class name with our
+unique `widget_class_id`. Here it is:
+
+	HTML_Literal: `
+		<div class="w3-round-xlarge" style="background-color: hsl(220, 30%, 80%);">
+			<div class="w3-round-xlarge w3-center {{WIDGET_CLASS_ID}}_progress"
+				style="width:63%; background-color: hsl(220, 70%, 60%);
+					font-weight: bold; color: hsl(220, 0%, 100%);"
+			>63%</div>
+		</div>
+	`,
+
+It's not necessary to mark a root of it - we anyway hold a DOM element object. Only what
+is of interest for us. Here we are interested in one object, since both numbers belong
+to just different parts of the same one.
+
+Then, the `update()` will be:
+	
+	update: function(data) {
+		var e1 = this.DOME.querySelector("." + this.tree_parent.widget_class_id + "_progress");
+		
+		e1.style.width = data + "%";
+		e1.innerHTML = data + "%";
+		
+		return this;
+	}
+
+Quite simple, but so much powerful, because:
+
+- __we can pass JSON/object as the data, with very complex structures, e.g. tables or lists, etc.__
+- __the data can be accumulated in a widget, and it can represent a log, a live graph, etc.__
+
+We can even pass a list of widgets, or sub-widgets can be created/removed on the fly by `update()`
+for each item of a list provided, effectively implementing an "adapter pattern" from Android,
+and allowing to scroll through infinite data sets, with very rich UI per each item.
+
+Back to our progress bar, here's how you'd use it:
+
+	pbw1.update(100);
+
+
+## Part 9. Example
+
+Here's a complete test, a single file logically split in sections.
+
+Copy and paste it into an HTML file, and see how it works (I tested, it worked).
+
+#### User HTML:
+
+	<!DOCTYPE html>
+	<html>
+	<body>
+	
+	<div id="pbw1"></div>
+	
+	<script>
+
+#### A widget code
+
+	// inside a js file of a widget class
+	(function () {
+		var Module_Path = ["WidgetsLib", "a1", "ProgressBar"];
+		var curr = this;
+		Module_Path.forEach(function(i){if (curr[i] == null) {addChildToTree(curr, i, {})} curr = curr[i]});
+	
+		specialize_with(curr, {
+			CSS_Literal: `
+				.{{WIDGET_CLASS_ID}}_base {
+					background-color: hsl(220, 30%, 80%);
+					border-radius:16px;
+				}
+				.{{WIDGET_CLASS_ID}}_progress {
+					background-color: hsl(220, 70%, 60%);
+					border-radius:16px;
+					text-align:center;
+					font-weight: bold;
+					color: hsl(220, 0%, 100%);
+					width: 0%;
+					transition: width 1s linear;
+				}
+			`,
+			HTML_Literal: `
+				<div class="{{WIDGET_CLASS_ID}}_base" onclick="{{WIDGET_INSTANCE}}.onclick(event)">
+					<div class="{{WIDGET_CLASS_ID}}_progress">0%</div>
+				</div>
+			`,
+			new: typical_widget_new,
+			WidgetSpecializer: {
+				remove: typical_widget_remove,
+				update: function(data) {
+					var e1 = this.DOME.querySelector("." + this.tree_parent.widget_class_id + "_progress");
+					console.log(this.tree_parent.widget_class_id + "_progress");
+					e1.style.width = data + "%";
+					e1.innerHTML = data + "%";
+					return this;
+				},
+			},
+		});
+	})();
+	
+#### User code
+
+		var pbw1 = WidgetsLib.a1.ProgressBar.new("pbw1", {
+			onclick: function(ev) {
+				console.log("====== YOU CLICKED PROGRESS BAR");
+				progress += 1;
+				if (progress >= 110) {
+					console.log("====== REMOVING A WIDGET");
+					this.remove();
+				}
+			}
+		});		
+
+		var progress = 0;
+
+		var proc = setInterval(function() {
+			if (progress >= 100) {
+				clearInterval(proc);
+				return;
+			}
+			progress += 1;
+			pbw1.update(progress);
+		}, 400);
+
+__Note__, that `onclick` only works here because it has been explicitly added (its call added) in
+the widget HTML literal, but that is optional, and there's no requirement for it to be there.
+Just in case you wonder why some `on<event>` don't work with a particular widget; works only
+those specifically designed into the widget to work.
+
+#### Utility functions
+
+	/////// UTILITY FUNCTIONS ////////
+	function getMyTreeLocation(o) {
+		var widget_class_id = "", widget_path = "";
+		
+		while (true) {
+			widget_class_id = o.tree_name + widget_class_id;
+			widget_path = o.tree_name + widget_path;
+			o = o.tree_parent;
+			if (o.tree_parent == null) {
+				break;
+			}
+			widget_class_id = "_" + widget_class_id;
+			widget_path = "." + widget_path;
+		}
+		return [widget_class_id, widget_path];
+	}
+	
+	function addChildToTree(o, childName, childO) {
+		o[childName] = childO;
+		childO.tree_parent = o;
+		childO.tree_name = childName;
+	}
+	
+	function specialize_with(o, S) { for (var prop in S) { o[prop] = S[prop]; } }
+
+
+#### Widget global utility functions
+
+	function typical_widget_new (dom_id, spec_o) {
+		if (this.instances == null) { this.instances = []; }
+		var instance_id = this.instances.length;
+		var el;
+		
+		if (this.ever_instantiated == null) {	// first instance ever
+			this.ever_instantiated = 1;
+
+			[this.widget_class_id, this.widget_path] = getMyTreeLocation(this);
+
+			el = document.createElement('style');
+			el.type = 'text/css';
+			el.innerHTML = this.CSS_Literal
+				.replace(/\{\{WIDGET_CLASS_ID\}\}/g, this.widget_class_id);
+			document.getElementsByTagName('head')[0].appendChild(el);
+		}
+		
+		var Widget = {
+			// newly created widget
+			tree_parent: this,
+			instance_id: instance_id,
+		};
+		this.instances.push(Widget);
+		
+		specialize_with(Widget, this.WidgetSpecializer);
+		specialize_with(Widget, spec_o);
+		
+		var base_el = document.getElementById(dom_id);
+		el = document.createElement('div');
+		specialize_with(el.style, base_el.style);
+		base_el.replaceWith(el);
+		el.setAttribute("id", dom_id);
+		el.innerHTML = this.HTML_Literal
+			.replace(/\{\{WIDGET_CLASS_ID\}\}/g, this.widget_class_id)
+			.replace(/\{\{WIDGET_INSTANCE\}\}/g, `${this.widget_path}.instances[${instance_id}]`);
+
+		Widget.DOME = el;
+		return Widget;
+	}
+
+	function typical_widget_remove () {
+		this.DOME.remove();
+		this.tree_parent.instances.splice(this.instance_id, 1);
+	}
+
+#### and
+
+	</script>
+
+	</body>
+	</html>
+
+
+
+## The end
+
+See also, this can be useful: https://johnresig.com/blog/javascript-micro-templating/ .
+
+The End.
+
+_Written by Leonid Titov, 2019_
+
+</textarea>
+<div class="markdown-body" id="mydoc-res" style="max-width: 900px;">
+<script src="showdown.js"></script>
+<script>
+	var converter = new showdown.Converter();
+	converter.setOption('simplifiedAutoLink', true);
+	converter.setOption('tables', true);
+	converter.setOption('tasklists', true);
+	var src = document.getElementById("mydoc-src");
+	var res = document.getElementById("mydoc-res");
+	res.innerHTML = converter.makeHtml(src.innerHTML);
+	src.innerHTML = '';
+</script>
+</body> </html>
