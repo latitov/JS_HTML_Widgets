@@ -11,6 +11,8 @@ What you'll get:
 - snippets of code and examples;
 - ready to use... framework in vanilla JS, to create widgets of your own;
 
+# _Note: this version is outdated. If you are interested in a production ready one, and in a help to migrate to it, please contact me_.
+
 Here's an example of what it look like.
 
 #### A widget code
