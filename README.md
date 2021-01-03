@@ -3,7 +3,7 @@ Easily create widget objects of arbitrary complexity
 
 By Leonid Titov, 2019-09-23
 
-Please download, and open the Widget_v3.md.html in a browser, and read. Or, follow the link [Widget_v3.md.html](Widget_v3.md.html) of the whitepaper v3.
+Please download, and open the Widget_v3.md.html in a browser, and read. Or, go to the Githab Pages of this [https://latitov.github.io/JS_HTML_Widgets/](https://latitov.github.io/JS_HTML_Widgets/), then follow the link to [whitepaper](Widget_v3.md.html) from there.
 
 What you'll get:
 
