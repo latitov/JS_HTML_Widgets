@@ -1,5 +1,5 @@
 # JS_HTML_Widgets
-Easily create widget objects of arbitrary complexity
+Easily create widget objects of arbitrary complexity 
 
 By Leonid Titov, 2019-09-23
 
